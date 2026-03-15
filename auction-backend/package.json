@@ -1,0 +1,28 @@
+{
+  "name": "auction-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "ethers": "^6.16.0",
+    "express": "^4.22.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^7.8.9",
+    "morgan": "^1.10.0",
+    "multer": "^2.1.0",
+    "nodemailer": "^8.0.2",
+    "resend": "^6.9.3",
+    "socket.io": "^4.8.3",
+    "stripe": "^12.9.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.1.4",
+    "nodemon": "^3.0.1"
+  }
+}
