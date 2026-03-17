@@ -1,4 +1,4 @@
-# Auction House Live (BidMaster)
+# BidMaster
 
 A real-time decentralized auction platform with live bidding, blockchain integration, and multi-currency support.
 
