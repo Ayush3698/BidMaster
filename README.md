@@ -6,7 +6,7 @@ A real-time decentralized auction platform with live bidding, blockchain integra
 
 ## Overview
 
-Auction House Live is a full-stack auction platform that combines traditional bidding with Web3 technology. Users can list high-value assets, place live bids, track auction history, and complete payments via crypto wallets or conventional fiat methods — all in real time.
+BidMaster is a full-stack auction platform that combines traditional bidding with Web3 technology. Users can list high-value assets, place live bids, track auction history, and complete payments via crypto wallets or conventional fiat methods — all in real time.
 
 ---
 
@@ -173,4 +173,4 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 
 ---
 
-© 2026 Auction House Live. All rights reserved.
+© 2026 BidMaster. All rights reserved.
