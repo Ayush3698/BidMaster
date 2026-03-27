@@ -1,0 +1,4 @@
+node_modules/
+auction-backend/node_modules/
+auction-backend/uploads/
+.env
