@@ -9,7 +9,7 @@ const { ethers } = require("ethers");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {    cors: {      origin: "https://bid-master-2fgr.vercel.app",     methods: ["GET", "POST"]   }  });
 
 const multer = require("multer");
 const fs = require("fs");
@@ -52,7 +52,7 @@ app.use('/uploads/videos', (req, res, next) => {
   next();
 }, express.static(path.join(__dirname, 'uploads/videos')));
 
-app.use(cors());
+app.use(cors({   origin: "https://bid-master-2fgr.vercel.app",    methods: ["GET", "POST", "PUT", "DELETE"],   credentials: true }));
 app.use(express.json());
 const emailRoutes = require('./routes/email');
 emailRoutes(app);
@@ -1461,7 +1461,7 @@ app.post("/api/auctions", auth, async (req, res) => {
 		const realImageUrl = imageUrl && !imageUrl.startsWith("blob:") ? imageUrl : "";
 		// If imageUrl is not already in allMedia, prepend it
 		const realImages = realImageUrl && !allMedia.includes(realImageUrl)
-			? allMedia  // imageUrl is stored separately, extras in images[]
+			? [realImageUrl, ...allMedia] // imageUrl is stored separately, extras in images[]
 			: allMedia;
 
 	const auction = await Auction.create({
@@ -1622,5 +1622,5 @@ io.on("connection", (socket) => {
 //  START
 // ═══════════════════════════════════════════════
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000; server.listen(PORT, () => {   console.log(`🚀 Server running on port ${PORT}`); });
 server.listen(PORT, () => console.log(`✅ Backend running on :${ PORT }`));
