@@ -61,8 +61,12 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey123";
 
 // ── MongoDB connect ──────────────────────────────────────────
 mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/auctiondb")
-	.then(() => // console.log("✅ MongoDB connected"))
-	.catch(err => console.warn("⚠️  MongoDB failed (running without DB):", err.message));
+    .then(() => {
+        console.log("✅ MongoDB connected");
+    })
+    .catch(err => {
+        console.warn("⚠️  MongoDB failed:", err.message);
+    });
 
 // ── Blockchain provider (optional, non-fatal) ────────────────
 let contract = null;
@@ -1622,5 +1626,5 @@ io.on("connection", (socket) => {
 //  START
 // ═══════════════════════════════════════════════
 
-const PORT = process.env.PORT || 5000; server.listen(PORT, () => {   // console.log(`🚀 Server running on port ${PORT}`); });
+const PORT = process.env.PORT || 5000; 
 server.listen(PORT, () => // console.log(`✅ Backend running on :${ PORT }`));
