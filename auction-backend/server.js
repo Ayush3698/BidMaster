@@ -64,8 +64,8 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/auctiondb")
     .then(() => {
         console.log("✅ MongoDB connected");
     })
-    .catch(err => {
-        console.warn("⚠️  MongoDB failed:", err.message);
+   .catch(err => {
+        console.warn("⚠️ MongoDB failed:", err.message);
     });
 
 // ── Blockchain provider (optional, non-fatal) ────────────────
