@@ -12,30 +12,77 @@ const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
 
-// ── CORS & JSON must come FIRST before any routes ──────────────
-app.use(cors());
+// ── CORS — allows Vercel frontend + local dev ──────────────────
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://localhost:4173",
+  process.env.FRONTEND_URL, // set this in Render env vars → your Vercel URL
+].filter(Boolean);
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.endsWith(".vercel.app") // allow all Vercel preview deployments
+    ) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS: " + origin));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // handle preflight for all routes
 app.use(express.json());
 
-// ── Static file serving ────────────────────────────────────────
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+const io = new Server(server, {
+  cors: {
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith(".vercel.app")
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error("Socket CORS blocked: " + origin));
+      }
+    },
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
 
-app.use('/uploads/videos', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Accept-Ranges', 'bytes');
-  next();
-}, express.static(path.join(__dirname, 'uploads/videos')));
+// ── Static file serving ────────────────────────────────────────
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+app.use(
+  "/uploads/videos",
+  (req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Accept-Ranges", "bytes");
+    next();
+  },
+  express.static(path.join(__dirname, "uploads/videos"))
+);
 
 // ── Optional routes (non-fatal if files missing) ───────────────
 try {
-  app.use('/api/upload', require('./routes/uploadRoutes'));
+  app.use("/api/upload", require("./routes/uploadRoutes"));
 } catch (e) {
   console.warn("⚠️  uploadRoutes not found, skipping:", e.message);
 }
 
 try {
-  const emailRoutes = require('./routes/email');
+  const emailRoutes = require("./routes/email");
   emailRoutes(app);
 } catch (e) {
   console.warn("⚠️  emailRoutes not found, skipping:", e.message);
@@ -63,298 +110,72 @@ const videoUpload = multer({
 });
 
 app.post("/api/upload-video", videoUpload.single("video"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No video file received" });
+  if (!req.file)
+    return res.status(400).json({ error: "No video file received" });
   const url = `/uploads/videos/${req.file.filename}`;
   console.log("✅ Video uploaded:", url);
   res.json({ url });
 });
 
+// ── Health check (keeps Render alive + easy status ping) ───────
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey123";
 
-// ── MongoDB connect ──────────────────────────────────────────
-mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/auctiondb")
+// ── MongoDB connect ────────────────────────────────────────────
+mongoose
+  .connect(process.env.MONGO_URI || "mongodb://localhost:27017/auctiondb")
   .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => console.warn("⚠️  MongoDB failed (running without DB):", err.message));
+  .catch((err) =>
+    console.warn("⚠️  MongoDB failed (running without DB):", err.message)
+  );
 
-// ── Blockchain provider (optional, non-fatal) ────────────────
+// ── Blockchain provider (optional, non-fatal) ─────────────────
 let contract = null;
 const CONTRACT_ABI = [
-  {
-    "inputs": [],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
-  },
-  {
-    "anonymous": false,
-    "inputs": [{ "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" }],
-    "name": "AuctionCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" },
-      { "indexed": true, "internalType": "address", "name": "seller", "type": "address" },
-      { "indexed": false, "internalType": "string", "name": "title", "type": "string" },
-      { "indexed": false, "internalType": "uint256", "name": "startingBid", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "endTime", "type": "uint256" }
-    ],
-    "name": "AuctionCreated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" },
-      { "indexed": true, "internalType": "address", "name": "winner", "type": "address" },
-      { "indexed": false, "internalType": "uint256", "name": "finalAmount", "type": "uint256" }
-    ],
-    "name": "AuctionEnded",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" },
-      { "indexed": true, "internalType": "address", "name": "bidder", "type": "address" },
-      { "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256" }
-    ],
-    "name": "BidPlaced",
-    "type": "event"
-  },
+  { "inputs": [], "stateMutability": "nonpayable", "type": "constructor" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" }], "name": "AuctionCancelled", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" }, { "indexed": true, "internalType": "address", "name": "seller", "type": "address" }, { "indexed": false, "internalType": "string", "name": "title", "type": "string" }, { "indexed": false, "internalType": "uint256", "name": "startingBid", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "endTime", "type": "uint256" }], "name": "AuctionCreated", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" }, { "indexed": true, "internalType": "address", "name": "winner", "type": "address" }, { "indexed": false, "internalType": "uint256", "name": "finalAmount", "type": "uint256" }], "name": "AuctionEnded", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" }, { "indexed": true, "internalType": "address", "name": "bidder", "type": "address" }, { "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256" }], "name": "BidPlaced", "type": "event" },
   { "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }], "name": "buyNow", "outputs": [], "stateMutability": "payable", "type": "function" },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" },
-      { "indexed": true, "internalType": "address", "name": "buyer", "type": "address" },
-      { "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }
-    ],
-    "name": "BuyNowExecuted",
-    "type": "event"
-  },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" }, { "indexed": true, "internalType": "address", "name": "buyer", "type": "address" }, { "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }], "name": "BuyNowExecuted", "type": "event" },
   { "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }], "name": "cancelAuction", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-  {
-    "inputs": [{
-      "components": [
-        { "internalType": "string", "name": "title", "type": "string" },
-        { "internalType": "string", "name": "category", "type": "string" },
-        { "internalType": "string", "name": "imageUrl", "type": "string" },
-        { "internalType": "string", "name": "description", "type": "string" },
-        { "internalType": "uint256", "name": "startingBid", "type": "uint256" },
-        { "internalType": "uint256", "name": "reservePrice", "type": "uint256" },
-        { "internalType": "uint256", "name": "buyNowPrice", "type": "uint256" },
-        { "internalType": "uint256", "name": "durationSeconds", "type": "uint256" }
-      ],
-      "internalType": "struct AuctionHouse.AuctionInput",
-      "name": "inp",
-      "type": "tuple"
-    }],
-    "name": "createAuction",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
+  { "inputs": [{ "components": [{ "internalType": "string", "name": "title", "type": "string" }, { "internalType": "string", "name": "category", "type": "string" }, { "internalType": "string", "name": "imageUrl", "type": "string" }, { "internalType": "string", "name": "description", "type": "string" }, { "internalType": "uint256", "name": "startingBid", "type": "uint256" }, { "internalType": "uint256", "name": "reservePrice", "type": "uint256" }, { "internalType": "uint256", "name": "buyNowPrice", "type": "uint256" }, { "internalType": "uint256", "name": "durationSeconds", "type": "uint256" }], "internalType": "struct AuctionHouse.AuctionInput", "name": "inp", "type": "tuple" }], "name": "createAuction", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "nonpayable", "type": "function" },
   { "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }], "name": "endAuction", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "fee", "type": "uint256" }
-    ],
-    "name": "FeeCollected",
-    "type": "event"
-  },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "id", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "fee", "type": "uint256" }], "name": "FeeCollected", "type": "event" },
   { "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }], "name": "placeBid", "outputs": [], "stateMutability": "payable", "type": "function" },
-  {
-    "inputs": [
-      { "internalType": "string", "name": "_username", "type": "string" },
-      { "internalType": "string", "name": "_email", "type": "string" },
-      { "internalType": "string", "name": "_country", "type": "string" },
-      { "internalType": "string", "name": "_currency", "type": "string" }
-    ],
-    "name": "registerUser",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
+  { "inputs": [{ "internalType": "string", "name": "_username", "type": "string" }, { "internalType": "string", "name": "_email", "type": "string" }, { "internalType": "string", "name": "_country", "type": "string" }, { "internalType": "string", "name": "_currency", "type": "string" }], "name": "registerUser", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
   { "inputs": [{ "internalType": "uint256", "name": "_permille", "type": "uint256" }], "name": "setPlatformFee", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
   { "inputs": [{ "internalType": "address", "name": "_new", "type": "address" }], "name": "transferOwnership", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
-      { "indexed": false, "internalType": "string", "name": "username", "type": "string" }
-    ],
-    "name": "UserRegistered",
-    "type": "event"
-  },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "address", "name": "user", "type": "address" }, { "indexed": false, "internalType": "string", "name": "username", "type": "string" }], "name": "UserRegistered", "type": "event" },
   { "inputs": [], "name": "withdraw", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
-      { "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }
-    ],
-    "name": "WithdrawalMade",
-    "type": "event"
-  },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "address", "name": "user", "type": "address" }, { "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }], "name": "WithdrawalMade", "type": "event" },
   { "stateMutability": "payable", "type": "receive" },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }, { "internalType": "uint256", "name": "", "type": "uint256" }],
-    "name": "auctionBids",
-    "outputs": [
-      { "internalType": "address", "name": "bidder", "type": "address" },
-      { "internalType": "uint256", "name": "amount", "type": "uint256" },
-      { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
+  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }, { "internalType": "uint256", "name": "", "type": "uint256" }], "name": "auctionBids", "outputs": [{ "internalType": "address", "name": "bidder", "type": "address" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }, { "internalType": "uint256", "name": "timestamp", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [], "name": "auctionCounter", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [], "name": "getAuctionCount", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "_from", "type": "uint256" }, { "internalType": "uint256", "name": "_to", "type": "uint256" }],
-    "name": "getAuctionIds",
-    "outputs": [{ "internalType": "uint256[]", "name": "", "type": "uint256[]" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }],
-    "name": "getAuctionMeta",
-    "outputs": [{
-      "components": [
-        { "internalType": "address payable", "name": "seller", "type": "address" },
-        { "internalType": "string", "name": "title", "type": "string" },
-        { "internalType": "string", "name": "category", "type": "string" },
-        { "internalType": "string", "name": "imageUrl", "type": "string" },
-        { "internalType": "string", "name": "description", "type": "string" },
-        { "internalType": "uint256", "name": "startingBid", "type": "uint256" },
-        { "internalType": "uint256", "name": "reservePrice", "type": "uint256" },
-        { "internalType": "uint256", "name": "buyNowPrice", "type": "uint256" }
-      ],
-      "internalType": "struct AuctionHouse.AuctionMeta",
-      "name": "",
-      "type": "tuple"
-    }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }],
-    "name": "getAuctionState",
-    "outputs": [{
-      "components": [
-        { "internalType": "uint256", "name": "currentBid", "type": "uint256" },
-        { "internalType": "address payable", "name": "highestBidder", "type": "address" },
-        { "internalType": "uint256", "name": "endTime", "type": "uint256" },
-        { "internalType": "uint256", "name": "totalBids", "type": "uint256" },
-        { "internalType": "bool", "name": "ended", "type": "bool" },
-        { "internalType": "bool", "name": "cancelled", "type": "bool" }
-      ],
-      "internalType": "struct AuctionHouse.AuctionState",
-      "name": "",
-      "type": "tuple"
-    }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }],
-    "name": "getBids",
-    "outputs": [{
-      "components": [
-        { "internalType": "address", "name": "bidder", "type": "address" },
-        { "internalType": "uint256", "name": "amount", "type": "uint256" },
-        { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
-      ],
-      "internalType": "struct AuctionHouse.Bid[]",
-      "name": "",
-      "type": "tuple[]"
-    }],
-    "stateMutability": "view",
-    "type": "function"
-  },
+  { "inputs": [{ "internalType": "uint256", "name": "_from", "type": "uint256" }, { "internalType": "uint256", "name": "_to", "type": "uint256" }], "name": "getAuctionIds", "outputs": [{ "internalType": "uint256[]", "name": "", "type": "uint256[]" }], "stateMutability": "view", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }], "name": "getAuctionMeta", "outputs": [{ "components": [{ "internalType": "address payable", "name": "seller", "type": "address" }, { "internalType": "string", "name": "title", "type": "string" }, { "internalType": "string", "name": "category", "type": "string" }, { "internalType": "string", "name": "imageUrl", "type": "string" }, { "internalType": "string", "name": "description", "type": "string" }, { "internalType": "uint256", "name": "startingBid", "type": "uint256" }, { "internalType": "uint256", "name": "reservePrice", "type": "uint256" }, { "internalType": "uint256", "name": "buyNowPrice", "type": "uint256" }], "internalType": "struct AuctionHouse.AuctionMeta", "name": "", "type": "tuple" }], "stateMutability": "view", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }], "name": "getAuctionState", "outputs": [{ "components": [{ "internalType": "uint256", "name": "currentBid", "type": "uint256" }, { "internalType": "address payable", "name": "highestBidder", "type": "address" }, { "internalType": "uint256", "name": "endTime", "type": "uint256" }, { "internalType": "uint256", "name": "totalBids", "type": "uint256" }, { "internalType": "bool", "name": "ended", "type": "bool" }, { "internalType": "bool", "name": "cancelled", "type": "bool" }], "internalType": "struct AuctionHouse.AuctionState", "name": "", "type": "tuple" }], "stateMutability": "view", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }], "name": "getBids", "outputs": [{ "components": [{ "internalType": "address", "name": "bidder", "type": "address" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }, { "internalType": "uint256", "name": "timestamp", "type": "uint256" }], "internalType": "struct AuctionHouse.Bid[]", "name": "", "type": "tuple[]" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "address", "name": "_user", "type": "address" }], "name": "getPendingWithdrawal", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  {
-    "inputs": [{ "internalType": "address", "name": "_user", "type": "address" }],
-    "name": "getProfile",
-    "outputs": [{
-      "components": [
-        { "internalType": "string", "name": "username", "type": "string" },
-        { "internalType": "string", "name": "email", "type": "string" },
-        { "internalType": "string", "name": "country", "type": "string" },
-        { "internalType": "string", "name": "defaultCurrency", "type": "string" },
-        { "internalType": "bool", "name": "registered", "type": "bool" },
-        { "internalType": "uint256", "name": "totalBidsPlaced", "type": "uint256" },
-        { "internalType": "uint256", "name": "totalAuctionsWon", "type": "uint256" },
-        { "internalType": "uint256", "name": "totalAuctionsCreated", "type": "uint256" }
-      ],
-      "internalType": "struct AuctionHouse.UserProfile",
-      "name": "",
-      "type": "tuple"
-    }],
-    "stateMutability": "view",
-    "type": "function"
-  },
+  { "inputs": [{ "internalType": "address", "name": "_user", "type": "address" }], "name": "getProfile", "outputs": [{ "components": [{ "internalType": "string", "name": "username", "type": "string" }, { "internalType": "string", "name": "email", "type": "string" }, { "internalType": "string", "name": "country", "type": "string" }, { "internalType": "string", "name": "defaultCurrency", "type": "string" }, { "internalType": "bool", "name": "registered", "type": "bool" }, { "internalType": "uint256", "name": "totalBidsPlaced", "type": "uint256" }, { "internalType": "uint256", "name": "totalAuctionsWon", "type": "uint256" }, { "internalType": "uint256", "name": "totalAuctionsCreated", "type": "uint256" }], "internalType": "struct AuctionHouse.UserProfile", "name": "", "type": "tuple" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "address", "name": "_user", "type": "address" }], "name": "getUserAuctions", "outputs": [{ "internalType": "uint256[]", "name": "", "type": "uint256[]" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "address", "name": "_user", "type": "address" }], "name": "getUserBidHistory", "outputs": [{ "internalType": "uint256[]", "name": "", "type": "uint256[]" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "address", "name": "_user", "type": "address" }], "name": "getUserWonAuctions", "outputs": [{ "internalType": "uint256[]", "name": "", "type": "uint256[]" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }], "name": "isReserveMet", "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }], "stateMutability": "view", "type": "function" },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-    "name": "meta",
-    "outputs": [
-      { "internalType": "address payable", "name": "seller", "type": "address" },
-      { "internalType": "string", "name": "title", "type": "string" },
-      { "internalType": "string", "name": "category", "type": "string" },
-      { "internalType": "string", "name": "imageUrl", "type": "string" },
-      { "internalType": "string", "name": "description", "type": "string" },
-      { "internalType": "uint256", "name": "startingBid", "type": "uint256" },
-      { "internalType": "uint256", "name": "reservePrice", "type": "uint256" },
-      { "internalType": "uint256", "name": "buyNowPrice", "type": "uint256" }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
+  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "name": "meta", "outputs": [{ "internalType": "address payable", "name": "seller", "type": "address" }, { "internalType": "string", "name": "title", "type": "string" }, { "internalType": "string", "name": "category", "type": "string" }, { "internalType": "string", "name": "imageUrl", "type": "string" }, { "internalType": "string", "name": "description", "type": "string" }, { "internalType": "uint256", "name": "startingBid", "type": "uint256" }, { "internalType": "uint256", "name": "reservePrice", "type": "uint256" }, { "internalType": "uint256", "name": "buyNowPrice", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [], "name": "owner", "outputs": [{ "internalType": "address", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "address", "name": "", "type": "address" }], "name": "pendingWithdrawals", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [], "name": "platformFeePercent", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-    "name": "state",
-    "outputs": [
-      { "internalType": "uint256", "name": "currentBid", "type": "uint256" },
-      { "internalType": "address payable", "name": "highestBidder", "type": "address" },
-      { "internalType": "uint256", "name": "endTime", "type": "uint256" },
-      { "internalType": "uint256", "name": "totalBids", "type": "uint256" },
-      { "internalType": "bool", "name": "ended", "type": "bool" },
-      { "internalType": "bool", "name": "cancelled", "type": "bool" }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
+  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "name": "state", "outputs": [{ "internalType": "uint256", "name": "currentBid", "type": "uint256" }, { "internalType": "address payable", "name": "highestBidder", "type": "address" }, { "internalType": "uint256", "name": "endTime", "type": "uint256" }, { "internalType": "uint256", "name": "totalBids", "type": "uint256" }, { "internalType": "bool", "name": "ended", "type": "bool" }, { "internalType": "bool", "name": "cancelled", "type": "bool" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }], "name": "timeRemaining", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "address", "name": "", "type": "address" }, { "internalType": "uint256", "name": "", "type": "uint256" }], "name": "userAuctions", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "address", "name": "", "type": "address" }, { "internalType": "uint256", "name": "", "type": "uint256" }], "name": "userBidHistory", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  {
-    "inputs": [{ "internalType": "address", "name": "", "type": "address" }],
-    "name": "userProfiles",
-    "outputs": [
-      { "internalType": "string", "name": "username", "type": "string" },
-      { "internalType": "string", "name": "email", "type": "string" },
-      { "internalType": "string", "name": "country", "type": "string" },
-      { "internalType": "string", "name": "defaultCurrency", "type": "string" },
-      { "internalType": "bool", "name": "registered", "type": "bool" },
-      { "internalType": "uint256", "name": "totalBidsPlaced", "type": "uint256" },
-      { "internalType": "uint256", "name": "totalAuctionsWon", "type": "uint256" },
-      { "internalType": "uint256", "name": "totalAuctionsCreated", "type": "uint256" }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
+  { "inputs": [{ "internalType": "address", "name": "", "type": "address" }], "name": "userProfiles", "outputs": [{ "internalType": "string", "name": "username", "type": "string" }, { "internalType": "string", "name": "email", "type": "string" }, { "internalType": "string", "name": "country", "type": "string" }, { "internalType": "string", "name": "defaultCurrency", "type": "string" }, { "internalType": "bool", "name": "registered", "type": "bool" }, { "internalType": "uint256", "name": "totalBidsPlaced", "type": "uint256" }, { "internalType": "uint256", "name": "totalAuctionsWon", "type": "uint256" }, { "internalType": "uint256", "name": "totalAuctionsCreated", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "address", "name": "", "type": "address" }, { "internalType": "uint256", "name": "", "type": "uint256" }], "name": "userWonAuctions", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" }
 ];
 
@@ -527,13 +348,12 @@ function makeToken(user) {
 app.post("/api/auth/wallet", async (req, res) => {
   try {
     const { walletAddress } = req.body;
-    if (!walletAddress) return res.status(400).json({ error: "walletAddress required" });
+    if (!walletAddress)
+      return res.status(400).json({ error: "walletAddress required" });
 
     const addr = walletAddress.toLowerCase();
     let user = await User.findOne({ walletAddress: addr });
-    if (!user) {
-      user = await User.create({ walletAddress: addr });
-    }
+    if (!user) user = await User.create({ walletAddress: addr });
 
     const token = makeToken(user);
     res.json({ token, user });
@@ -562,15 +382,15 @@ app.put("/api/users/profile", auth, async (req, res) => {
     delete update.walletAddress;
     const user = await User.findByIdAndUpdate(req.user.id, update, { new: true });
 
-    // Save phone to userdata file — wrapped safely, non-fatal on Render
+    // Save phone to userdata file — non-fatal on Render (ephemeral FS)
     try {
-      const filePath = path.join(__dirname, 'userdata', 'users.json');
+      const filePath = path.join(__dirname, "userdata", "users.json");
       if (fs.existsSync(filePath)) {
-        const existing = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-        const idx = existing.findIndex(u => u.email === update.email);
+        const existing = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+        const idx = existing.findIndex((u) => u.email === update.email);
         if (idx !== -1) {
-          existing[idx].phone = (update.countryCode || '') + (update.mobileNumber || '');
-          existing[idx].username = update.username || '';
+          existing[idx].phone = (update.countryCode || "") + (update.mobileNumber || "");
+          existing[idx].username = update.username || "";
           fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
         }
       }
@@ -588,7 +408,7 @@ app.put("/api/users/profile", auth, async (req, res) => {
 app.get("/api/users/profile/:walletAddress", async (req, res) => {
   try {
     const user = await User.findOne({
-      walletAddress: req.params.walletAddress.toLowerCase()
+      walletAddress: req.params.walletAddress.toLowerCase(),
     }).lean();
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json({ user });
@@ -631,12 +451,12 @@ app.get("/api/auctions", async (req, res) => {
   try {
     const now = Date.now();
     const auctions = await Auction.find({ status: "active" }).sort({ createdAt: -1 }).lean();
-    const mapped = auctions.map(a => ({
+    const mapped = auctions.map((a) => ({
       ...a,
       title: a.title || a.headline || "Untitled",
       endsIn: a.endsAt
         ? Math.max(0, Math.floor((new Date(a.endsAt).getTime() - now) / 1000))
-        : (a.endsIn || 3600),
+        : a.endsIn || 3600,
       mediaTypes: a.mediaTypes || {},
     }));
     res.json({ auctions: mapped });
@@ -649,15 +469,14 @@ app.get("/api/auctions/my", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).lean();
     const now = Date.now();
-    const auctions = await Auction.find({
-      walletAddress: user?.walletAddress
-    }).sort({ createdAt: -1 }).lean();
-    const mapped = auctions.map(a => ({
+    const auctions = await Auction.find({ walletAddress: user?.walletAddress })
+      .sort({ createdAt: -1 }).lean();
+    const mapped = auctions.map((a) => ({
       ...a,
       title: a.title || a.headline || "Untitled",
       endsIn: a.endsAt
         ? Math.max(0, Math.floor((new Date(a.endsAt).getTime() - now) / 1000))
-        : (a.endsIn || 3600),
+        : a.endsIn || 3600,
     }));
     res.json({ auctions: mapped });
   } catch (err) {
@@ -672,7 +491,7 @@ app.get("/api/auctions/:id", async (req, res) => {
     const now = Date.now();
     auction.endsIn = auction.endsAt
       ? Math.max(0, Math.floor((new Date(auction.endsAt).getTime() - now) / 1000))
-      : (auction.endsIn || 3600);
+      : auction.endsIn || 3600;
     auction.title = auction.title || auction.headline || "Untitled";
     res.json(auction);
   } catch (err) {
@@ -683,7 +502,6 @@ app.get("/api/auctions/:id", async (req, res) => {
 app.post("/api/auctions", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-
     const {
       headline, title, category, openBid, reserve, buyNow,
       description, auctionDays, noReserve, grade, currency,
@@ -702,12 +520,10 @@ app.post("/api/auctions", auth, async (req, res) => {
     }
 
     const allMedia = Array.isArray(images)
-      ? images.filter(u => u && !u.startsWith("blob:"))
+      ? images.filter((u) => u && !u.startsWith("blob:"))
       : [];
     const realImageUrl = imageUrl && !imageUrl.startsWith("blob:") ? imageUrl : "";
-    const realImages = realImageUrl && !allMedia.includes(realImageUrl)
-      ? allMedia
-      : allMedia;
+    const realImages = realImageUrl && !allMedia.includes(realImageUrl) ? allMedia : allMedia;
 
     const auction = await Auction.create({
       startDate: startDate ? new Date(startDate) : new Date(),
@@ -761,9 +577,8 @@ app.delete("/api/auctions/:id", auth, async (req, res) => {
     if (!auction) return res.status(404).json({ error: "Auction not found" });
 
     const user = await User.findById(req.user.id);
-    if (auction.walletAddress !== user.walletAddress) {
+    if (auction.walletAddress !== user.walletAddress)
       return res.status(403).json({ error: "Not authorized" });
-    }
 
     await Auction.findByIdAndDelete(req.params.id);
     io.emit("auction_deleted", { auctionId: req.params.id });
@@ -799,10 +614,7 @@ app.get("/api/bids/:auctionId", async (req, res) => {
 app.post("/api/bids", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-    const bid = await Bid.create({
-      ...req.body,
-      walletAddress: user.walletAddress,
-    });
+    const bid = await Bid.create({ ...req.body, walletAddress: user.walletAddress });
 
     await Auction.findByIdAndUpdate(req.body.auctionId, {
       currentBid: String(req.body.amount),
@@ -875,4 +687,6 @@ process.on("unhandledRejection", (reason) => {
 // ═══════════════════════════════════════════════
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, "0.0.0.0", () => console.log(`✅ Backend running on :${PORT}`));
+server.listen(PORT, "0.0.0.0", () =>
+  console.log(`✅ Backend running on :${PORT}`)
+);
