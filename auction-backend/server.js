@@ -3,7 +3,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 // ── Catch ALL async crashes (e.g. ethers provider failures) — keeps server alive
 process.on("unhandledRejection", (err) => {
-	console.warn("⚠️  Unhandled rejection (non-fatal):", err?.message || err);
+  console.warn("⚠️  Unhandled rejection (non-fatal):", err?.message || err);
 });
 
 require("dotenv").config();
@@ -26,19 +26,19 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5173",
   "http://localhost:4173",
-  process.env.FRONTEND_URL, // set this in Render env vars → your Vercel URL
+  process.env.FRONTEND_URL,
 ].filter(Boolean);
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
     if (
       allowedOrigins.includes(origin) ||
-      origin.endsWith(".vercel.app") // allow all Vercel preview deployments
+      origin.endsWith(".vercel.app")
     ) {
       callback(null, true);
     } else {
+      console.error(`🚫 CORS Blocked: ${origin}`);
       callback(new Error("Not allowed by CORS: " + origin));
     }
   },
@@ -48,7 +48,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // handle preflight for all routes
+app.options("*", cors(corsOptions));
 app.use(express.json());
 
 const io = new Server(server, {
@@ -98,44 +98,27 @@ try {
 
 // ── Video upload setup ─────────────────────────────────────────
 const videoStorage = multer.diskStorage({
-	destination: (req, file, cb) => {
-		const dir = path.join(__dirname, "uploads/videos");
-		fs.mkdirSync(dir, { recursive: true });
-		cb(null, dir);
-	},
-	filename: (req, file, cb) => {
-		const ext = path.extname(file.originalname) || ".mp4";
-		cb(null, `video_${ Date.now() }${ ext }`);
-	},
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, "uploads/videos");
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || ".mp4";
+    cb(null, `video_${Date.now()}${ext}`);
+  },
 });
+
 const videoUpload = multer({
-	storage: videoStorage,
-	limits: { fileSize: 200 * 1024 * 1024 },
-	fileFilter: (req, file, cb) => {
-		if (file.mimetype.startsWith("video/")) cb(null, true);
-		else cb(new Error("Only video files allowed"));
-	},
+  storage: videoStorage,
+  limits: { fileSize: 200 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("video/")) cb(null, true);
+    else cb(new Error("Only video files allowed"));
+  },
 });
 
 app.post("/api/upload-video", videoUpload.single("video"), (req, res) => {
-<<<<<<< HEAD
-	if (!req.file) return res.status(400).json({ error: "No video file received" });
-	const url = `/uploads/videos/${ req.file.filename }`;
-	console.log("✅ Video uploaded:", url);
-	res.json({ url });
-});
-
-app.use('/uploads/videos', (req, res, next) => {
-	res.header('Access-Control-Allow-Origin', '*');
-	res.header('Accept-Ranges', 'bytes');
-	next();
-}, express.static(path.join(__dirname, 'uploads/videos')));
-
-app.use(cors());
-app.use(express.json());
-const emailRoutes = require('./routes/email');
-emailRoutes(app);
-=======
   if (!req.file)
     return res.status(400).json({ error: "No video file received" });
   const url = `/uploads/videos/${req.file.filename}`;
@@ -143,11 +126,10 @@ emailRoutes(app);
   res.json({ url });
 });
 
-// ── Health check (keeps Render alive + easy status ping) ───────
+// ── Health check ───────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
->>>>>>> 8a29b110a708dffbb7c115258cd475d0a439170a
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey123";
 
@@ -159,11 +141,7 @@ mongoose
     console.warn("⚠️  MongoDB failed (running without DB):", err.message)
   );
 
-<<<<<<< HEAD
-// ── Blockchain provider (optional, fully non-fatal) ──────────
-=======
 // ── Blockchain provider (optional, non-fatal) ─────────────────
->>>>>>> 8a29b110a708dffbb7c115258cd475d0a439170a
 let contract = null;
 const CONTRACT_ABI = [
   { "inputs": [], "stateMutability": "nonpayable", "type": "constructor" },
@@ -211,101 +189,62 @@ const CONTRACT_ABI = [
 ];
 
 if (process.env.NODE_ENV !== "production") {
-	process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-	process.removeAllListeners("warning");
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  process.removeAllListeners("warning");
 }
 
 if (process.env.RPC_URL && process.env.CONTRACT_ADDRESS) {
-<<<<<<< HEAD
-	// Wrap in an async IIFE so all errors — sync and async — are caught
-	(async () => {
-		try {
-			const provider = new ethers.JsonRpcProvider(process.env.RPC_URL, undefined, {
-				polling: true,
-				pollingInterval: 60000, // poll every 60s instead of 15s
-				staticNetwork: await ethers.Network.from(1), // skip repeated network detection calls
-				batchMaxCount: 1, // prevent batch requests that confuse free-tier RPCs
-			});
+  // Wrap in async IIFE so all errors — sync and async — are caught
+  (async () => {
+    try {
+      const provider = new ethers.JsonRpcProvider(process.env.RPC_URL, undefined, {
+        polling: true,
+        pollingInterval: 60000,
+        staticNetwork: await ethers.Network.from(1),
+        batchMaxCount: 1,
+      });
 
-			// Attach error handler immediately before any awaits
-			provider.on("error", (err) =>
-				console.warn("⚠️  Provider error:", err.message)
-			);
+      provider.on("error", (err) =>
+        console.warn("⚠️  Provider error:", err.message)
+      );
 
-			// Test connection — if this throws, we catch it below and move on
-			await provider.getNetwork();
+      await provider.getNetwork();
 
-			contract = new ethers.Contract(process.env.CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+      contract = new ethers.Contract(process.env.CONTRACT_ADDRESS, CONTRACT_ABI, provider);
 
-			contract.on("BidPlaced", (id, bidder, amount, timestamp) => {
-				const data = {
-					auctionId: Number(id),
-					bidder,
-					amount: ethers.formatEther(amount),
-					timestamp: Number(timestamp),
-				};
-				io.to(`auction_${ Number(id) }`).emit("new_bid", data);
-				console.log(`🔨 BidPlaced #${ Number(id) }: ${ data.amount } ETH by ${ bidder }`);
-			});
+      contract.on("BidPlaced", (id, bidder, amount, timestamp) => {
+        try {
+          const data = {
+            auctionId: Number(id),
+            bidder,
+            amount: ethers.formatEther(amount),
+            timestamp: Number(timestamp),
+          };
+          io.to(`auction_${Number(id)}`).emit("new_bid", data);
+          console.log(`🔨 BidPlaced #${Number(id)}: ${data.amount} ETH by ${bidder}`);
+        } catch (e) {
+          console.warn("⚠️  BidPlaced handler error:", e.message);
+        }
+      });
 
-			contract.on("AuctionEnded", (id, winner, finalAmount) => {
-				io.to(`auction_${ Number(id) }`).emit("auction_ended", {
-					auctionId: Number(id),
-					winner,
-					finalAmount: ethers.formatEther(finalAmount),
-				});
-			});
+      contract.on("AuctionEnded", (id, winner, finalAmount) => {
+        try {
+          io.to(`auction_${Number(id)}`).emit("auction_ended", {
+            auctionId: Number(id),
+            winner,
+            finalAmount: ethers.formatEther(finalAmount),
+          });
+        } catch (e) {
+          console.warn("⚠️  AuctionEnded handler error:", e.message);
+        }
+      });
 
-			console.log("✅ Blockchain connected");
-		} catch (err) {
-			console.warn("⚠️  Blockchain unavailable (server still running):", err.message);
-			contract = null;
-		}
-	})();
-=======
-  try {
-    const provider = new ethers.JsonRpcProvider(process.env.RPC_URL, undefined, {
-      polling: true,
-      pollingInterval: 15000,
-    });
-    contract = new ethers.Contract(process.env.CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-
-    contract.on("BidPlaced", (id, bidder, amount, timestamp) => {
-      try {
-        const data = {
-          auctionId: Number(id),
-          bidder,
-          amount: ethers.formatEther(amount),
-          timestamp: Number(timestamp),
-        };
-        io.to(`auction_${Number(id)}`).emit("new_bid", data);
-        console.log(`🔨 BidPlaced #${Number(id)}: ${data.amount} ETH by ${bidder}`);
-      } catch (e) {
-        console.warn("⚠️  BidPlaced handler error:", e.message);
-      }
-    });
-
-    contract.on("AuctionEnded", (id, winner, finalAmount) => {
-      try {
-        io.to(`auction_${Number(id)}`).emit("auction_ended", {
-          auctionId: Number(id),
-          winner,
-          finalAmount: ethers.formatEther(finalAmount),
-        });
-      } catch (e) {
-        console.warn("⚠️  AuctionEnded handler error:", e.message);
-      }
-    });
-
-    provider.on("error", (err) =>
-      console.warn("⚠️  Provider error:", err.message)
-    );
-
-    console.log("✅ Blockchain connected");
-  } catch (err) {
-    console.warn("⚠️  Blockchain setup failed:", err.message);
-  }
->>>>>>> 8a29b110a708dffbb7c115258cd475d0a439170a
+      console.log("✅ Blockchain connected");
+    } catch (err) {
+      console.warn("⚠️  Blockchain unavailable (server still running):", err.message);
+      contract = null;
+    }
+  })();
 }
 
 // ═══════════════════════════════════════════════
@@ -466,22 +405,6 @@ app.put("/api/users/profile", auth, async (req, res) => {
     delete update.walletAddress;
     const user = await User.findByIdAndUpdate(req.user.id, update, { new: true });
 
-<<<<<<< HEAD
-		// Save phone to userdata file
-		const filePath = path.join(__dirname, 'userdata', 'users.json');
-		const existing = fs.existsSync(filePath) ? JSON.parse(fs.readFileSync(filePath)) : [];
-		const idx = existing.findIndex(u => u.email === update.email);
-		if (idx !== -1) {
-			existing[idx].phone = (update.countryCode || '') + (update.mobileNumber || '');
-			existing[idx].username = update.username || '';
-			fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
-		}
-		const token = makeToken(user);
-		res.json({ token, user });
-	} catch (err) {
-		res.status(500).json({ error: err.message });
-	}
-=======
     // Save phone to userdata file — non-fatal on Render (ephemeral FS)
     try {
       const filePath = path.join(__dirname, "userdata", "users.json");
@@ -503,7 +426,6 @@ app.put("/api/users/profile", auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
->>>>>>> 8a29b110a708dffbb7c115258cd475d0a439170a
 });
 
 app.get("/api/users/profile/:walletAddress", async (req, res) => {
@@ -609,75 +531,6 @@ app.post("/api/auctions", auth, async (req, res) => {
       imageUrl, images, txHash, auctionId, status, startDate,
     } = req.body;
 
-<<<<<<< HEAD
-		const {
-			headline, title, category, openBid, reserve, buyNow,
-			description, auctionDays, noReserve, grade, currency,
-			imageUrl, images, txHash, auctionId, status, startDate,
-		} = req.body;
-
-		let endsAt, endsInSeconds;
-		if (req.body.endDate) {
-			endsAt = new Date(req.body.endDate);
-			endsInSeconds = Math.max(0, Math.floor((endsAt.getTime() - Date.now()) / 1000));
-		} else {
-			const daysMap = { "3d": 3, "7d": 7, "14d": 14, "21d": 21, "30d": 30 };
-			const days = daysMap[auctionDays] || 14;
-			endsInSeconds = days * 24 * 3600;
-			endsAt = new Date(Date.now() + endsInSeconds * 1000);
-		}
-
-		const allMedia = Array.isArray(images)
-			? images.filter(u => u && !u.startsWith("blob:"))
-			: [];
-		const realImageUrl = imageUrl && !imageUrl.startsWith("blob:") ? imageUrl : "";
-		const realImages = realImageUrl && !allMedia.includes(realImageUrl) ? allMedia : allMedia;
-
-		const auction = await Auction.create({
-			startDate: startDate ? new Date(startDate) : new Date(),
-			title: title || headline || "Untitled",
-			headline: headline || title || "Untitled",
-			category: category || "Collectibles",
-			openBid: openBid || "0",
-			currentBid: openBid || "0",
-			reserve: reserve || "",
-			buyNow: buyNow || "",
-			description: description || "",
-			auctionDays: auctionDays || "14d",
-			noReserve: noReserve || false,
-			grade: grade || "",
-			currency: currency || "USD",
-			imageUrl: realImageUrl,
-			images: realImages,
-			endsIn: endsInSeconds,
-			endsAt,
-			endDate: endsAt,
-			txHash: txHash || null,
-			auctionId: auctionId || null,
-			walletAddress: user.walletAddress,
-			status: status || "active",
-			bidderCount: 0,
-			mediaTypes: req.body.mediaTypes || {},
-			paymentMethod: req.body.paymentMethod || "",
-			sellerNote: req.body.sellerNote || "",
-			mobileNumber: req.body.mobileNumber || "",
-			walletPublicKey: req.body.walletPublicKey || "",
-			walletQrUrl: req.body.walletQrUrl || "",
-			upiId: req.body.upiId || "",
-			upiQrUrl: req.body.upiQrUrl || "",
-			bankName: req.body.bankName || "",
-			accountNumber: req.body.accountNumber || "",
-			ifscCode: req.body.ifscCode || "",
-			accountHolder: req.body.accountHolder || "",
-		});
-
-		await User.findByIdAndUpdate(req.user.id, { $inc: { totalCreated: 1 } });
-		io.emit("new_auction", auction);
-		res.json({ auction });
-	} catch (err) {
-		res.status(500).json({ error: err.message });
-	}
-=======
     let endsAt, endsInSeconds;
     if (req.body.endDate) {
       endsAt = new Date(req.body.endDate);
@@ -739,7 +592,6 @@ app.post("/api/auctions", auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
->>>>>>> 8a29b110a708dffbb7c115258cd475d0a439170a
 });
 
 app.delete("/api/auctions/:id", auth, async (req, res) => {
@@ -747,19 +599,6 @@ app.delete("/api/auctions/:id", auth, async (req, res) => {
     const auction = await Auction.findById(req.params.id);
     if (!auction) return res.status(404).json({ error: "Auction not found" });
 
-<<<<<<< HEAD
-		const user = await User.findById(req.user.id);
-		if (auction.walletAddress !== user.walletAddress) {
-			return res.status(403).json({ error: "Not authorized" });
-		}
-
-		await Auction.findByIdAndDelete(req.params.id);
-		io.emit("auction_deleted", { auctionId: req.params.id });
-		res.json({ success: true, message: "Auction deleted" });
-	} catch (err) {
-		res.status(500).json({ error: err.message });
-	}
-=======
     const user = await User.findById(req.user.id);
     if (auction.walletAddress !== user.walletAddress)
       return res.status(403).json({ error: "Not authorized" });
@@ -770,7 +609,6 @@ app.delete("/api/auctions/:id", auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
->>>>>>> 8a29b110a708dffbb7c115258cd475d0a439170a
 });
 
 // ═══════════════════════════════════════════════
@@ -801,17 +639,10 @@ app.post("/api/bids", auth, async (req, res) => {
     const user = await User.findById(req.user.id);
     const bid = await Bid.create({ ...req.body, walletAddress: user.walletAddress });
 
-<<<<<<< HEAD
-		await Auction.findByIdAndUpdate(req.body.auctionId, {
-			currentBid: String(req.body.amount),
-			$inc: { bidderCount: 1 },
-		});
-=======
     await Auction.findByIdAndUpdate(req.body.auctionId, {
       currentBid: String(req.body.amount),
       $inc: { bidderCount: 1 },
     });
->>>>>>> 8a29b110a708dffbb7c115258cd475d0a439170a
 
     await User.findByIdAndUpdate(req.user.id, { $inc: { totalBids: 1 } });
 
@@ -863,3 +694,10 @@ io.on("connection", (socket) => {
 });
 
 // ═══════════════════════════════════════════════
+//  START SERVER
+// ═══════════════════════════════════════════════
+
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
